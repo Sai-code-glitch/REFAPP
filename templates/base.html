@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d7a55">
+  <title>{% block title %}REFAPP Inventory{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <h1>REFAPP</h1>
+    <nav class="tabs" aria-label="Main">
+      <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">Stock</a>
+      <a href="{{ url_for('scan_page') }}" class="{% if request.endpoint == 'scan_page' %}active{% endif %}">Scan</a>
+      <a href="{{ url_for('labels_page') }}" class="{% if request.endpoint == 'labels_page' %}active{% endif %}">Labels</a>
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <script>
+    // Shared helpers: API key (if the server requires one) is kept on this device only.
+    window.REFAPP = {
+      key() { try { return localStorage.getItem('refapp_api_key') || ''; } catch (e) { return ''; } },
+      setKey(v) { try { localStorage.setItem('refapp_api_key', v); } catch (e) {} },
+      async api(path, options = {}) {
+        const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+        const key = REFAPP.key();
+        if (key) headers['X-API-Key'] = key;
+        const res = await fetch(path, Object.assign({}, options, { headers }));
+        if (res.status === 401) {
+          const entered = prompt('This inventory is protected. Enter the API key:');
+          if (entered) { REFAPP.setKey(entered); return REFAPP.api(path, options); }
+        }
+        const body = res.status === 204 ? null : await res.json().catch(() => null);
+        if (!res.ok) throw new Error((body && body.error) || `Request failed (${res.status})`);
+        return body;
+      },
+      toast(message, isError = false) {
+        const el = document.createElement('div');
+        el.className = 'toast' + (isError ? ' error' : '');
+        el.setAttribute('role', 'status');
+        el.textContent = message;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 2600);
+      },
+      escape(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; },
+    };
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

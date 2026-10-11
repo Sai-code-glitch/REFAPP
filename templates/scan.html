@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Scan · REFAPP{% endblock %}
+{% block content %}
+<section class="card" style="display:grid; gap:12px">
+  <div class="segmented" role="group" aria-label="Scan mode">
+    <button type="button" id="modeIn" aria-pressed="true">Stock in (+)</button>
+    <button type="button" id="modeOut" aria-pressed="false">Stock out (−)</button>
+  </div>
+  <label style="max-width: 160px">Quantity per scan<input id="qty" type="number" min="1" value="1" inputmode="numeric"></label>
+  <div id="reader" aria-label="Camera preview"></div>
+  <p class="muted" id="camStatus">Starting camera… Point it at a product's QR label.</p>
+</section>
+
+<section class="card">
+  <form id="manual" class="row" autocomplete="off">
+    <label class="grow">No camera? Type the SKU<input id="code" placeholder="e.g. P00001"></label>
+    <button type="submit" style="align-self:end">Apply</button>
+  </form>
+</section>
+
+<section class="card result" id="result" aria-live="polite">
+  <span class="muted">Scanned items will appear here.</span>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  let mode = 'in';
+  let lastCode = '';
+  let lastAt = 0;
+  const modeIn = document.getElementById('modeIn');
+  const modeOut = document.getElementById('modeOut');
+  const result = document.getElementById('result');
+
+  function setMode(next) {
+    mode = next;
+    modeIn.setAttribute('aria-pressed', String(next === 'in'));
+    modeOut.setAttribute('aria-pressed', String(next === 'out'));
+  }
+  modeIn.addEventListener('click', () => setMode('in'));
+  modeOut.addEventListener('click', () => setMode('out'));
+
+  async function apply(code) {
+    const quantity = Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1);
+    try {
+      const res = await REFAPP.api('/api/scan', { method: 'POST', body: JSON.stringify({ code, action: mode, quantity }) });
+      const sign = mode === 'in' ? '+' : '−';
+      result.innerHTML = `<b>${REFAPP.escape(res.product.product_name)}</b> ${sign}${quantity} → <b>${res.stock}</b> in stock` +
+        (res.product.is_low ? ' <span class="pill">Low</span>' : '');
+      if (navigator.vibrate) navigator.vibrate(60);
+    } catch (err) {
+      result.textContent = err.message;
+      REFAPP.toast(err.message, true);
+    }
+  }
+
+  document.getElementById('manual').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = document.getElementById('code').value.trim();
+    if (code) apply(code);
+  });
+
+  function onScan(text) {
+    const now = Date.now();
+    // Ignore the same label for 2.5s so one scan doesn't count several times.
+    if (text === lastCode && now - lastAt < 2500) return;
+    lastCode = text; lastAt = now;
+    apply(text);
+  }
+
+  if (window.Html5Qrcode) {
+    const scanner = new Html5Qrcode('reader');
+    scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 220, height: 220 } }, onScan, () => {})
+      .then(() => { document.getElementById('camStatus').textContent = 'Camera ready. Hold a QR label inside the box.'; })
+      .catch(() => { document.getElementById('camStatus').textContent = 'Camera unavailable. Allow camera access (HTTPS required) or type the SKU below.'; });
+  } else {
+    document.getElementById('camStatus').textContent = 'Scanner could not load. Type the SKU below instead.';
+  }
+</script>
+{% endblock %}

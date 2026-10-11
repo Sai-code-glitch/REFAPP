@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}QR labels · REFAPP{% endblock %}
+{% block content %}
+<section class="card no-print row">
+  <p class="grow" style="margin:0">Print these and stick each label on its product or shelf. Scanning a label on the Scan page updates its stock.</p>
+  <button type="button" onclick="window.print()">Print labels</button>
+</section>
+{% if products %}
+<section class="labels">
+  {% for p in products %}
+  <div class="label">
+    <img src="{{ url_for('product_qr', product_id=p.id) }}" alt="QR code for {{ p.product_name }}" width="140" height="140">
+    <div class="name">{{ p.product_name }}</div>
+    <div class="sku">{{ p.sku }}</div>
+  </div>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card empty">No products yet. Add products on the Stock page first.</section>
+{% endif %}
+{% endblock %}

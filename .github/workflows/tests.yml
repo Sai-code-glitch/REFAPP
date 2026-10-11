@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          set -o pipefail
+          pip install -r requirements-dev.txt 2>&1 | tee pip.log || {
+            echo "::error title=pip install failed::$(tail -n 25 pip.log | tr '\n' ' ' | cut -c1-3500)"; exit 1; }
+      - name: Run tests
+        run: |
+          set -o pipefail
+          python -m pytest -q -rf 2>&1 | tee pytest.log || {
+            echo "::error title=tests failed::$(grep -E 'FAILED|Error|error|assert' pytest.log | head -n 30 | tr '\n' ' ' | cut -c1-3500)"; exit 1; }
