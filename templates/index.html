@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Stock · REFAPP{% endblock %}
+{% block content %}
+<section class="stats" aria-label="Summary">
+  <div class="stat"><b id="statProducts">0</b><span>Products</span></div>
+  <div class="stat"><b id="statUnits">0</b><span>Units in stock</span></div>
+  <div class="stat"><b id="statLow">0</b><span>Low stock</span></div>
+</section>
+
+<section class="card">
+  <form id="addForm" class="row" autocomplete="off">
+    <label class="grow">Product name<input id="newName" required maxlength="100" placeholder="e.g. Water bottle 500ml"></label>
+    <label style="flex: 0 1 110px">Starting stock<input id="newStock" type="number" min="0" value="0" inputmode="numeric"></label>
+    <label style="flex: 0 1 110px">Alert below<input id="newThreshold" type="number" min="0" value="5" inputmode="numeric"></label>
+    <button type="submit" style="align-self: end">Add product</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="row" style="margin-bottom: 12px">
+    <input id="search" class="grow" type="search" placeholder="Search name or SKU" aria-label="Search products">
+    <button id="lowOnly" type="button" class="ghost" aria-pressed="false">Low stock only</button>
+  </div>
+  <ul id="productList" class="products" aria-live="polite"></ul>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const list = document.getElementById('productList');
+  const search = document.getElementById('search');
+  const lowBtn = document.getElementById('lowOnly');
+  let lowOnly = false;
+  let timer;
+
+  async function load() {
+    const params = new URLSearchParams();
+    if (search.value.trim()) params.set('q', search.value.trim());
+    if (lowOnly) params.set('low', '1');
+    try {
+      const [items, all] = await Promise.all([
+        REFAPP.api('/api/products?' + params),
+        REFAPP.api('/api/products'),
+      ]);
+      render(items);
+      document.getElementById('statProducts').textContent = all.length;
+      document.getElementById('statUnits').textContent = all.reduce((s, p) => s + p.stock, 0);
+      document.getElementById('statLow').textContent = all.filter(p => p.is_low).length;
+    } catch (err) { REFAPP.toast(err.message, true); }
+  }
+
+  function render(items) {
+    if (!items.length) {
+      list.innerHTML = '<li class="empty">No products yet. Add your first product above, then print its QR label.</li>';
+      return;
+    }
+    list.innerHTML = items.map(p => `
+      <li data-id="${p.id}">
+        <div>
+          <div class="name">${REFAPP.escape(p.product_name)} ${p.is_low ? '<span class="pill">Low</span>' : ''}</div>
+          <div class="sku">${REFAPP.escape(p.sku)}</div>
+        </div>
+        <div class="qty" aria-label="In stock">${p.stock}</div>
+        <div class="actions">
+          <button type="button" data-act="out" class="ghost" aria-label="Remove one ${REFAPP.escape(p.product_name)}">− 1</button>
+          <button type="button" data-act="in" aria-label="Add one ${REFAPP.escape(p.product_name)}">+ 1</button>
+          <a href="${p.qr_url}" target="_blank" rel="noopener" style="align-self:center; margin-left:auto">QR code</a>
+          <button type="button" data-act="delete" class="danger">Delete</button>
+        </div>
+      </li>`).join('');
+  }
+
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const id = btn.closest('li').dataset.id;
+    const act = btn.dataset.act;
+    try {
+      if (act === 'delete') {
+        if (!btn.dataset.confirm) { btn.dataset.confirm = '1'; btn.textContent = 'Tap again to delete'; return; }
+        await REFAPP.api(`/api/products/${id}`, { method: 'DELETE' });
+        REFAPP.toast('Product deleted');
+      } else {
+        const res = await REFAPP.api('/api/scan', { method: 'POST', body: JSON.stringify({ code: id, action: act, quantity: 1, note: 'manual' }) });
+        REFAPP.toast(`${res.product.product_name}: ${res.stock} in stock`);
+      }
+      load();
+    } catch (err) { REFAPP.toast(err.message, true); }
+  });
+
+  document.getElementById('addForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      product_name: document.getElementById('newName').value,
+      stock: document.getElementById('newStock').value,
+      low_stock_threshold: document.getElementById('newThreshold').value,
+    };
+    try {
+      const p = await REFAPP.api('/api/products', { method: 'POST', body: JSON.stringify(body) });
+      REFAPP.toast(`Added ${p.product_name} (${p.sku})`);
+      e.target.reset();
+      load();
+    } catch (err) { REFAPP.toast(err.message, true); }
+  });
+
+  search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250); });
+  lowBtn.addEventListener('click', () => {
+    lowOnly = !lowOnly;
+    lowBtn.setAttribute('aria-pressed', String(lowOnly));
+    lowBtn.textContent = lowOnly ? 'Show all' : 'Low stock only';
+    load();
+  });
+  load();
+</script>
+{% endblock %}
